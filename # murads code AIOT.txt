@@ -1,0 +1,164 @@
+#code AIOT
+import pandas as pd
+from sklearn.preprocessing import LabelEncoder
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+
+# 🔹 Step 1: Load the CSV file (tab-separated)
+df = pd.read_csv("soil_data.csv", sep='\t')  # Change filename if needed
+
+# 🔹 Step 2: Select required columns & drop empty rows
+df = df[['Raw Value', 'Status']].dropna()
+
+# 🔹 Step 3: Prepare features (X) and labels (y)
+X = df['Raw Value'].astype(int).values.reshape(-1, 1)  # Ensure X is numeric
+le = LabelEncoder()
+y = le.fit_transform(df['Status'])  # Converts Status to numeric (Dry=0, etc.)
+
+# 🔹 Step 4: Build the neural network model
+model = Sequential()
+model.add(Dense(10, input_shape=(1,), activation='relu'))  # First layer
+model.add(Dense(8, activation='relu'))                     # Hidden layer
+model.add(Dense(3, activation='softmax'))                  # Output layer (3 classes)
+
+# 🔹 Step 5: Compile the model
+model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+# 🔹 Step 6: Train the model
+model.fit(X, y, epochs=100, batch_size=4, verbose=1)
+
+# 🔹 Step 7: Save the model
+model.save("soil_nn_model.keras")
+print("✅ Model saved successfully as 'soil_nn_model.keras'")
+Model training code
+
+
+##
+## 2 
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import numpy as np
+from tensorflow.keras.models import load_model
+
+# Load trained model
+model = load_model("soil_nn_model.keras")
+labels = ['Dry', 'Optimal', 'Wet']
+
+app = Flask(_name_)
+CORS(app)
+
+# Store last values
+latest_raw = None
+latest_status = "waiting..."
+
+@app.route('/predict')
+def predict():
+    global latest_raw, latest_status
+    raw = request.args.get('value')
+
+    # When browser asks for status
+    if raw == "check":
+        return jsonify({
+            "status": latest_status,
+            "raw_value": latest_raw
+        })
+
+    # When ESP32 sends new data
+    try:
+        raw_value = int(raw)
+        prediction = model.predict(np.array([[raw_value]]))
+        latest_status = labels[prediction.argmax()]
+        latest_raw = raw_value
+        return jsonify({"status": latest_status})
+    except Exception as e:
+        return jsonify({"status": "error", "details": str(e)})
+
+if _name_ == '_main_':
+    app.run(host='0.0.0.0', port=5000)
+
+##
+##3 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🌿 Real-Time Smart Soil AI Dashboard</title>
+  <link rel="icon" href="soil_icon.png" type="image/png">
+  <style>
+  body
+  {
+  font-family: Arial, sans-serif;
+  background-color: #f3f7f3;
+  text-align: center;
+  margin: 0;
+  padding: 40px 20px;
+  color: #000;
+}
+
+
+    h1 {
+      color: #2e7d32;
+      font-size: 2em;
+      margin-bottom: 10px;
+    }
+
+    #status {
+      font-size: 1.8em;
+      color: green;
+      margin-top: 20px;
+    }
+
+    #rawValue, #timestamp {
+      font-size: 1.1em;
+      color: #444;
+      margin: 10px;
+    }
+
+    .info {
+      font-size: 1em;
+      color: #555;
+      margin-bottom: 30px;
+    }
+
+    footer {
+      margin-top: 50px;
+      font-size: 0.9em;
+      color: #777;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🌱 Real-Time Smart Soil AI Dashboard</h1>
+  <p class="info">Monitoring soil moisture in real time using ESP32 + AI</p>
+
+  <p id="rawValue">Raw Sensor Value: (check Thonny)</p>
+  <p id="status">Status: ...</p>
+  <p id="timestamp">Last updated: ...</p>
+
+  <script>
+    async function fetchLatest() {
+      try {
+     const response = await fetch("http://192.168.140.116:5000/predict?value=check")
+  // ESP32 auto-sends value
+        const data = await response.json();
+        const now = new Date().toLocaleTimeString();
+
+        document.getElementById("rawValue").innerText = "Raw Sensor Value: (see serial)";
+        document.getElementById("status").innerText = "Status: " + data.status;
+        document.getElementById("timestamp").innerText = "Last updated: " + now;
+      } catch (error) {
+        document.getElementById("status").innerText = "❌ Error fetching prediction";
+      }
+    }
+
+    setInterval(fetchLatest, 5000);  // Update every 5 seconds
+  </script>
+
+  <footer>
+    <p>Created by Sadam Hussein Korse – 2025</p>
+  </footer>
+
+</body>
+</html>
